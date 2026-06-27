@@ -7,7 +7,11 @@ const cors = require('cors')
 const { isValidBase58 } = require('./lib/base58-helpers')
 const { JobStore } = require('./lib/jobs')
 const { GrinderClient } = require('./lib/worker')
-const { generateVanityKeypair } = require('./lib/generate')
+const {
+  startGenerateJob,
+  getGenerateJob,
+  cancelGenerateJob,
+} = require('./lib/generate')
 const {
   newDepositWallet,
   paymentReceived,
@@ -23,7 +27,12 @@ const JOB_TTL_SECONDS = Number(process.env.JOB_TTL_SECONDS) || 1800
 const OPERATOR_WALLET = process.env.OPERATOR_WALLET || ''
 
 const app = express()
-app.use(cors({ origin: CORS_ORIGIN }))
+// CORS_ORIGIN accepts '*', a single origin, or a comma-separated list. A
+// permissive default is fine — the API surface holds no credentials and the
+// claim flow is gated by on-chain payment, not browser origin.
+const corsOrigins =
+  CORS_ORIGIN === '*' ? '*' : CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+app.use(cors({ origin: corsOrigins }))
 app.use(express.json({ limit: '8kb' }))
 
 const jobs = new JobStore({ ttlSeconds: JOB_TTL_SECONDS })
@@ -71,36 +80,46 @@ app.get('/health', (_req, res) => {
 })
 
 /**
- * Direct, synchronous vanity-key generation. Spawns SolVanityCL, waits for
- * the keypair, returns base58 publicKey + secretKey strings to the client.
+ * Asynchronous vanity-key generation.
  *
- * No deposit address, no payment flow, no SSE — useful for testing the
- * GPU pipeline end-to-end and for free/internal flows. The paid flow still
- * lives under POST /api/jobs.
+ *   POST /api/generate { prefix?, suffix?, caseSensitive? }
+ *     → 202 { jobId, status:'processing', prefix, suffix }
  *
- * Body: { prefix?: string, suffix?: string, caseSensitive?: boolean }
- * 200:  { publicKey: string, secretKey: string }
- * 4xx/5xx: { error: string }
+ *   GET  /api/generate/:jobId
+ *     → 200 { status:'processing', elapsedMs, ... }
+ *           { status:'done', publicKey, secretKey, ... }
+ *           { status:'error' | 'cancelled', error, ... }
+ *     → 404 if unknown / expired
+ *
+ *   DELETE /api/generate/:jobId
+ *     → 200 { ok:true } — kills the in-flight Python process and wipes state
+ *
+ * Validation (mirrored on the frontend):
+ *   • base58 charset only (no 0, O, I, l)
+ *   • prefix + suffix together → max 3 chars each
+ *   • prefix or suffix alone   → max 5 chars
+ *
+ * No deposit address / payment gating — that's still POST /api/jobs.
  */
-app.post('/api/generate', async (req, res) => {
-  const { prefix = '', suffix = '', caseSensitive = true } = req.body || {}
-  const ac = new AbortController()
-  // Two distinct close signals — guarded so a *normal* completion doesn't abort:
-  //   req fires when the request stream ends (normal POST body finish), so we
-  //     only abort if the body was cut off mid-upload (req.complete = false).
-  //   res fires when the response socket closes; abort if we hadn't written
-  //     the full response yet (writableEnded = false → client disconnected).
-  req.on('close', () => { if (!req.complete) ac.abort() })
-  res.on('close', () => { if (!res.writableEnded) ac.abort() })
+app.post('/api/generate', (req, res) => {
   try {
-    const result = await generateVanityKeypair({
-      prefix, suffix, caseSensitive: !!caseSensitive, signal: ac.signal,
-    })
-    res.json(result)
+    const job = startGenerateJob(req.body || {})
+    res.status(202).json(job)
   } catch (e) {
-    const status = e.status || 500
-    res.status(status).json({ error: e.message })
+    res.status(e.status || 500).json({ error: e.message })
   }
+})
+
+app.get('/api/generate/:jobId', (req, res) => {
+  const job = getGenerateJob(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'job not found or expired' })
+  res.json(job)
+})
+
+app.delete('/api/generate/:jobId', (req, res) => {
+  const ok = cancelGenerateJob(req.params.jobId)
+  if (!ok) return res.status(404).json({ error: 'job not found' })
+  res.json({ ok: true })
 })
 
 app.post('/api/jobs', (req, res) => {
