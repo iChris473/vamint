@@ -230,7 +230,7 @@ async function pollPayment(jobId) {
 // ─── Boot ──────────────────────────────────────────────────────────────────
 
 grinder.init().then(() => {
-  app.listen(PORT, () => {
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`[server] listening on :${PORT}`)
     console.log(`[server] grinder mode: ${grinder.cpuFallback ? 'CPU' : 'CUDA'}`)
     console.log(`[server] claim fee: ${CLAIM_FEE_LAMPORTS / LAMPORTS_PER_SOL} SOL`)
