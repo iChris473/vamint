@@ -1,0 +1,24 @@
+{
+  "name": "vamint-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vamint API + CUDA grinder bridge",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "bs58": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mongoose": "^8.8.4",
+    "nanoid": "^5.0.9",
+    "tweetnacl": "^1.0.3"
+  }
+}
