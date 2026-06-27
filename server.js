@@ -85,7 +85,13 @@ app.get('/health', (_req, res) => {
 app.post('/api/generate', async (req, res) => {
   const { prefix = '', suffix = '', caseSensitive = true } = req.body || {}
   const ac = new AbortController()
-  req.on('close', () => { if (!res.writableEnded) ac.abort() })
+  // Two distinct close signals — guarded so a *normal* completion doesn't abort:
+  //   req fires when the request stream ends (normal POST body finish), so we
+  //     only abort if the body was cut off mid-upload (req.complete = false).
+  //   res fires when the response socket closes; abort if we hadn't written
+  //     the full response yet (writableEnded = false → client disconnected).
+  req.on('close', () => { if (!req.complete) ac.abort() })
+  res.on('close', () => { if (!res.writableEnded) ac.abort() })
   try {
     const result = await generateVanityKeypair({
       prefix, suffix, caseSensitive: !!caseSensitive, signal: ac.signal,
