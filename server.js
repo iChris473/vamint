@@ -11,6 +11,7 @@ const {
   startGenerateJob,
   getGenerateJob,
   cancelGenerateJob,
+  confirmGeneratePayment,
 } = require('./lib/generate')
 const {
   newDepositWallet,
@@ -85,8 +86,10 @@ app.get('/health', (_req, res) => {
  *   POST /api/generate { prefix?, suffix?, caseSensitive?, kind? }
  *     kind:'wallet' (default) → 202 { jobId, status:'awaiting-payment',
  *                                     deposit:{ address, lamports, sol } }
- *       A fresh deposit wallet is minted per request. Grinding starts only
- *       after the deposit holds GENERATE_FEE_LAMPORTS (default 0.05 SOL).
+ *       A fresh deposit wallet is minted per request. Grinding starts
+ *       IMMEDIATELY in the background, but the keys are held server-side
+ *       and only released once the deposit holds GENERATE_FEE_LAMPORTS
+ *       (default 0.05 SOL) — via the background poller or POST /confirm.
  *     kind:'token'            → 202 { jobId, status:'processing', ... }
  *       Unchanged: grinds immediately, fee collected at Pump.fun launch.
  *
@@ -120,6 +123,20 @@ app.get('/api/generate/:jobId', (req, res) => {
   const job = getGenerateJob(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'job not found or expired' })
   res.json(job)
+})
+
+// "Confirm transaction" button: check the deposit balance right now rather
+// than waiting for the background poller. Responds with the fresh job view —
+// status 'done'/'processing' means the payment landed, 'awaiting-payment'
+// means nothing has arrived yet.
+app.post('/api/generate/:jobId/confirm', async (req, res) => {
+  try {
+    const view = await confirmGeneratePayment(req.params.jobId)
+    if (!view) return res.status(404).json({ error: 'job not found or expired' })
+    res.json(view)
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message })
+  }
 })
 
 app.delete('/api/generate/:jobId', (req, res) => {
