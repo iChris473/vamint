@@ -18,6 +18,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "mongoose": "^8.8.4",
+    "multer": "^2.2.0",
     "nanoid": "^5.0.9",
     "tweetnacl": "^1.0.3"
   }

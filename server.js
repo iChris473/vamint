@@ -246,6 +246,51 @@ async function pollPayment(jobId) {
   }
 }
 
+
+// ── deploy token ──────────────────────────────────────────────────────────────
+const multer = require('multer')
+const upload = multer({ storage: multer.memoryStorage() })
+const { mintTokenOnPumpFun } = require('./mintToken')
+
+// POST /api/deploy  (multipart/form-data)
+// fields: name, symbol, description, twitter, telegram, website, devBuySol
+// file:   image
+app.post('/api/deploy', upload.single('image'), async (req, res) => {
+  try {
+    const {
+      name,
+      symbol,
+      description = '',
+      twitter = '',
+      telegram = '',
+      website = '',
+      devBuySol = '0',
+      privateKey = '',
+    } = req.body
+    if (!name || !symbol) return res.status(400).json({ error: 'name and symbol are required' })
+    if (!req.file)        return res.status(400).json({ error: 'image is required' })
+    if (!privateKey || !isValidBase58(privateKey)) {
+      return res.status(400).json({ error: 'valid base58 dev wallet privateKey is required' })
+    }
+
+    const result = await mintTokenOnPumpFun(
+      req.file,
+      name,
+      symbol,
+      description,
+      { twitter, telegram, website },
+      privateKey,
+      parseFloat(devBuySol) || 0,
+    )
+
+    if (result.error) return res.status(500).json({ error: result.message })
+    res.json({ ok: true, mint: result.ca, sig: result.signature, link: result.link })
+  } catch (err) {
+    console.error('[deploy]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // ─── Boot ──────────────────────────────────────────────────────────────────
 
 grinder.init().then(() => {
