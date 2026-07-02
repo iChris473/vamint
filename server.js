@@ -17,8 +17,10 @@ const {
   newDepositWallet,
   paymentReceived,
   forwardBalance,
+  treasuryConfigStatus,
   LAMPORTS_PER_SOL,
 } = require('./lib/solana')
+const deposits = require('./lib/deposits')
 
 const PORT = Number(process.env.PORT) || 4000
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*'
@@ -126,6 +128,17 @@ app.get('/api/generate/:jobId', (req, res) => {
   const job = getGenerateJob(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'job not found or expired' })
   res.json(job)
+})
+
+// Re-attempt sweeps for every pending deposit in the durable ledger. Safe to
+// expose: sweeps can only ever move funds TO the treasury. Also runs
+// automatically at boot and every 10 minutes.
+app.post('/api/sweeps/retry', async (_req, res) => {
+  try {
+    res.json(await deposits.retryUnswept())
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
 })
 
 // "Confirm transaction" button: check the deposit balance right now rather
@@ -326,7 +339,23 @@ grinder.init().then(() => {
     console.log(`[server] claim fee: ${CLAIM_FEE_LAMPORTS / LAMPORTS_PER_SOL} SOL`)
     const { FEE_USD, FEE_TOKEN_MINT, TREASURY_WALLET } = require('./lib/solana')
     console.log(`[server] wallet unlock fee: $${FEE_USD} of ${FEE_TOKEN_MINT}`)
-    console.log(`[server] treasury: ${TREASURY_WALLET} (sweep signing: ${process.env.TREASURY_SECRET_KEY ? 'configured' : 'MISSING — set TREASURY_SECRET_KEY'})`)
+    treasuryConfigStatus().then(s => {
+      if (s.ok) {
+        console.log(`[server] treasury: ${TREASURY_WALLET} (fee payer ready, ${s.lamports != null ? s.lamports / LAMPORTS_PER_SOL + ' SOL' : 'balance unknown'})`)
+      } else {
+        console.warn(`[server] ⚠ TREASURY MISCONFIGURED: ${s.reason}`)
+      }
+    })
+    // Recover any deposits a previous run failed to sweep, then keep
+    // scanning in the background.
+    setTimeout(() => {
+      deposits.retryUnswept()
+        .then(r => console.log('[server] deposit recovery pass:', JSON.stringify(r)))
+        .catch(e => console.warn('[server] deposit recovery pass failed:', e.message))
+    }, 5000).unref()
+    setInterval(() => {
+      deposits.retryUnswept().catch(e => console.warn('[server] deposit recovery failed:', e.message))
+    }, 10 * 60 * 1000).unref()
   })
 })
 
