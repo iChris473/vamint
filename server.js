@@ -82,14 +82,22 @@ app.get('/health', (_req, res) => {
 /**
  * Asynchronous vanity-key generation.
  *
- *   POST /api/generate { prefix?, suffix?, caseSensitive? }
- *     → 202 { jobId, status:'processing', prefix, suffix }
+ *   POST /api/generate { prefix?, suffix?, caseSensitive?, kind? }
+ *     kind:'wallet' (default) → 202 { jobId, status:'awaiting-payment',
+ *                                     deposit:{ address, lamports, sol } }
+ *       A fresh deposit wallet is minted per request. Grinding starts only
+ *       after the deposit holds GENERATE_FEE_LAMPORTS (default 0.05 SOL).
+ *     kind:'token'            → 202 { jobId, status:'processing', ... }
+ *       Unchanged: grinds immediately, fee collected at Pump.fun launch.
  *
  *   GET  /api/generate/:jobId
- *     → 200 { status:'processing', elapsedMs, ... }
+ *     → 200 { status:'awaiting-payment', deposit, paymentExpiresAt, ... }
+ *           { status:'processing', elapsedMs, ... }
  *           { status:'done', publicKey, secretKey, ... }
- *           { status:'error' | 'cancelled', error, ... }
- *     → 404 if unknown / expired
+ *             (kind:'token' → publicKey only; the CA secret never leaves
+ *              the server, so the free token flow can't mint free wallets)
+ *           { status:'error' | 'cancelled' | 'expired', error, ... }
+ *     → 404 if unknown / expired from the store
  *
  *   DELETE /api/generate/:jobId
  *     → 200 { ok:true } — kills the in-flight Python process and wipes state
@@ -98,8 +106,6 @@ app.get('/health', (_req, res) => {
  *   • base58 charset only (no 0, O, I, l)
  *   • prefix + suffix together → max 3 chars each
  *   • prefix or suffix alone   → max 5 chars
- *
- * No deposit address / payment gating — that's still POST /api/jobs.
  */
 app.post('/api/generate', (req, res) => {
   try {
@@ -298,6 +304,8 @@ grinder.init().then(() => {
     console.log(`[server] listening on :${PORT}`)
     console.log(`[server] grinder mode: ${grinder.cpuFallback ? 'CPU' : 'CUDA'}`)
     console.log(`[server] claim fee: ${CLAIM_FEE_LAMPORTS / LAMPORTS_PER_SOL} SOL`)
+    const genFee = Number(process.env.GENERATE_FEE_LAMPORTS) || 50_000_000
+    console.log(`[server] wallet generate deposit: ${genFee / LAMPORTS_PER_SOL} SOL`)
   })
 })
 
