@@ -1,5 +1,5 @@
 const dotenv = require("dotenv");
-const { Connection, Keypair, LAMPORTS_PER_SOL, Transaction, sendAndConfirmTransaction } = require("@solana/web3.js");
+const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, sendAndConfirmTransaction } = require("@solana/web3.js");
 const { PumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = require("@pump-fun/pump-sdk");
 const { AnchorProvider } = require("@coral-xyz/anchor");
 const NodeWallet = require("@coral-xyz/anchor/dist/cjs/nodewallet");
@@ -23,6 +23,18 @@ const fs = require('fs');
 const path = require('path');
 const SLIPPAGE_BASIS_POINTS = 500n;
 const defaultPrivateKey = '' // load private key from server
+
+// Custom-CA launch fee: 0.1 SOL from the dev wallet to the treasury, added
+// to the mint transaction itself so it's atomic — fee charged iff the mint
+// lands.
+const TREASURY_WALLET = process.env.TREASURY_WALLET || 'E96hif2XYbvK4YbHc7wLZBaJoszM7viCUbdSMjappGxR';
+const MINT_FEE_LAMPORTS = Number(process.env.MINT_FEE_LAMPORTS) || 100_000_000;
+
+const launchFeeInstruction = (fromPubkey) => SystemProgram.transfer({
+    fromPubkey,
+    toPubkey: new PublicKey(TREASURY_WALLET),
+    lamports: MINT_FEE_LAMPORTS,
+});
 
 const createWallet = (keypair) => {
     return {
@@ -117,6 +129,7 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
         });
 
         const transaction = new Transaction().add(createInstruction);
+        transaction.add(launchFeeInstruction(walletAccount.publicKey));
         const { blockhash } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = walletAccount.publicKey;
@@ -157,6 +170,7 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
 
         const transaction = new Transaction();
         for (const ix of instructions) transaction.add(ix);
+        transaction.add(launchFeeInstruction(walletAccount.publicKey));
 
         const { blockhash } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;

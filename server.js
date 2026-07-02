@@ -85,11 +85,14 @@ app.get('/health', (_req, res) => {
  *
  *   POST /api/generate { prefix?, suffix?, caseSensitive?, kind? }
  *     kind:'wallet' (default) → 202 { jobId, status:'awaiting-payment',
- *                                     deposit:{ address, lamports, sol } }
+ *                                     deposit:{ address, mint, amount,
+ *                                               amountRaw, decimals, usd } }
  *       A fresh deposit wallet is minted per request. Grinding starts
  *       IMMEDIATELY in the background, but the keys are held server-side
- *       and only released once the deposit holds GENERATE_FEE_LAMPORTS
- *       (default 0.05 SOL) — via the background poller or POST /confirm.
+ *       and only released once the deposit holds FEE_USD ($5) worth of
+ *       FEE_TOKEN_MINT (quoted at request time) — detected by the
+ *       background poller or POST /confirm. On confirmation the deposit
+ *       is swept to TREASURY_WALLET, with the treasury paying the fee.
  *     kind:'token'            → 202 { jobId, status:'processing', ... }
  *       Unchanged: grinds immediately, fee collected at Pump.fun launch.
  *
@@ -110,9 +113,9 @@ app.get('/health', (_req, res) => {
  *   • prefix + suffix together → max 3 chars each
  *   • prefix or suffix alone   → max 5 chars
  */
-app.post('/api/generate', (req, res) => {
+app.post('/api/generate', async (req, res) => {
   try {
-    const job = startGenerateJob(req.body || {})
+    const job = await startGenerateJob(req.body || {})
     res.status(202).json(job)
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message })
@@ -321,8 +324,9 @@ grinder.init().then(() => {
     console.log(`[server] listening on :${PORT}`)
     console.log(`[server] grinder mode: ${grinder.cpuFallback ? 'CPU' : 'CUDA'}`)
     console.log(`[server] claim fee: ${CLAIM_FEE_LAMPORTS / LAMPORTS_PER_SOL} SOL`)
-    const genFee = Number(process.env.GENERATE_FEE_LAMPORTS) || 50_000_000
-    console.log(`[server] wallet generate deposit: ${genFee / LAMPORTS_PER_SOL} SOL`)
+    const { FEE_USD, FEE_TOKEN_MINT, TREASURY_WALLET } = require('./lib/solana')
+    console.log(`[server] wallet unlock fee: $${FEE_USD} of ${FEE_TOKEN_MINT}`)
+    console.log(`[server] treasury: ${TREASURY_WALLET} (sweep signing: ${process.env.TREASURY_SECRET_KEY ? 'configured' : 'MISSING — set TREASURY_SECRET_KEY'})`)
   })
 })
 
