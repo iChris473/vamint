@@ -9,8 +9,8 @@ dotenv.config();
 const BN = require("bn.js");
 const { PinataSDK } = require('pinata');
 
-const pinataAPIKey = "205889c11e094e6ce3a9"
-const pinataAPISecret = "6e7c5b6d7e0914f3df44d867c3b88e4d2cda29cede344d155b805533ef1fa5ac"
+const pinataAPIKey = process.env.PINATA_API_KEY;
+const pinataAPISecret = process.env.PINATA_API_SECRET;
 const pinataJWTKey = process.env.PINATA_JWT;
 
 const pinata = new PinataSDK({
