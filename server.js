@@ -131,6 +131,24 @@ app.get('/api/generate/:jobId', (req, res) => {
   res.json(job)
 })
 
+// ─── Admin: fee-waived wallet generation ────────────────────────────────────
+// Same engine, same validation, no paywall, NO AUTH — anyone who can reach
+// this server can grind free wallets. Fine while the code isn't public;
+// lock it down (or delete it) before exposing the API.
+// Poll/cancel through the normal GET/DELETE /api/generate/:jobId — the job
+// is born paid, so 'done' returns { publicKey, secretKey } directly.
+app.post('/api/admin/generate', async (req, res) => {
+  try {
+    const job = await startGenerateJob(
+      { ...(req.body || {}), kind: 'wallet' },
+      { waiveFee: true },
+    )
+    res.status(202).json(job)
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message })
+  }
+})
+
 // Re-attempt sweeps for every pending deposit in the durable ledger. Safe to
 // expose: sweeps can only ever move funds TO the treasury. Also runs
 // automatically at boot and every 10 minutes.
