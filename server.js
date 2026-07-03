@@ -12,6 +12,7 @@ const {
   getGenerateJob,
   cancelGenerateJob,
   confirmGeneratePayment,
+  getEscrowedTokenKeypair,
 } = require('./lib/generate')
 const {
   newDepositWallet,
@@ -292,7 +293,8 @@ const upload = multer({ storage: multer.memoryStorage() })
 const { mintTokenOnPumpFun } = require('./mintToken')
 
 // POST /api/deploy  (multipart/form-data)
-// fields: name, symbol, description, twitter, telegram, website, devBuySol
+// fields: name, symbol, description, twitter, telegram, website, devBuySol,
+//         jobId (the token-grind job whose escrowed vanity CA becomes the mint)
 // file:   image
 app.post('/api/deploy', upload.single('image'), async (req, res) => {
   try {
@@ -305,11 +307,25 @@ app.post('/api/deploy', upload.single('image'), async (req, res) => {
       website = '',
       devBuySol = '0',
       privateKey = '',
+      jobId = '',
     } = req.body
     if (!name || !symbol) return res.status(400).json({ error: 'name and symbol are required' })
     if (!req.file)        return res.status(400).json({ error: 'image is required' })
     if (!privateKey || !isValidBase58(privateKey)) {
       return res.status(400).json({ error: 'valid base58 dev wallet privateKey is required' })
+    }
+
+    // Mint at the user's ground vanity CA — that's the product. The escrowed
+    // secret stays server-side; only the jobId travels over the API.
+    let mintSecret = null
+    if (jobId) {
+      const escrow = getEscrowedTokenKeypair(jobId)
+      if (!escrow) {
+        return res.status(410).json({
+          error: 'vanity CA escrow expired or not found — grind a new contract address',
+        })
+      }
+      mintSecret = escrow.secretKey
     }
 
     const result = await mintTokenOnPumpFun(
@@ -320,9 +336,12 @@ app.post('/api/deploy', upload.single('image'), async (req, res) => {
       { twitter, telegram, website },
       privateKey,
       parseFloat(devBuySol) || 0,
+      mintSecret,
     )
 
     if (result.error) return res.status(500).json({ error: result.message })
+    // escrow consumed — wipe the job so the CA secret doesn't linger
+    if (jobId) cancelGenerateJob(jobId)
     res.json({ ok: true, mint: result.ca, sig: result.signature, link: result.link })
   } catch (err) {
     console.error('[deploy]', err)

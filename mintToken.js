@@ -13,10 +13,14 @@ const pinataAPIKey = process.env.PINATA_API_KEY;
 const pinataAPISecret = process.env.PINATA_API_SECRET;
 const pinataJWTKey = process.env.PINATA_JWT;
 
+// Dedicated Pinata gateways only serve content pinned to THEIR OWN account —
+// set PINATA_GATEWAY to the gateway domain of the same account the JWT
+// belongs to, or leave unset for the public gateway.
+const pinataGateway = process.env.PINATA_GATEWAY || "gateway.pinata.cloud";
+
 const pinata = new PinataSDK({
     pinataJwt: pinataJWTKey,
-    // pinataGateway: "violet-odd-coyote-404.mypinata.cloud",
-    pinataGateway: "red-cheerful-unicorn-465.mypinata.cloud",
+    pinataGateway,
 });
 
 const fs = require('fs');
@@ -24,11 +28,11 @@ const path = require('path');
 const SLIPPAGE_BASIS_POINTS = 500n;
 const defaultPrivateKey = '' // load private key from server
 
-// Custom-CA launch fee: 0.1 SOL from the dev wallet to the treasury, added
+// Custom-CA launch fee: 0.05 SOL from the dev wallet to the treasury, added
 // to the mint transaction itself so it's atomic — fee charged iff the mint
 // lands.
 const TREASURY_WALLET = process.env.TREASURY_WALLET || 'E96hif2XYbvK4YbHc7wLZBaJoszM7viCUbdSMjappGxR';
-const MINT_FEE_LAMPORTS = Number(process.env.MINT_FEE_LAMPORTS) || 100_000_000;
+const MINT_FEE_LAMPORTS = Number(process.env.MINT_FEE_LAMPORTS) || 50_000_000;
 
 const launchFeeInstruction = (fromPubkey) => SystemProgram.transfer({
     fromPubkey,
@@ -71,7 +75,7 @@ const getProvider = (privateKey) => {
     return new AnchorProvider(connection, wallet, { commitment: "finalized" });
 };
 
-const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, privateKey, buyAmount = 0) => {
+const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, privateKey, buyAmount = 0, mintSecretKey = null) => {
 
     // ── shared setup ──────────────────────────────────────────────────────────
     if (!privateKey) return { error: true, message: 'No private key provided' };
@@ -83,9 +87,14 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
     const walletAccount = Keypair.fromSecretKey(privateKeyBuffer);
     console.log("🔵 Dev Wallet public key:", walletAccount.publicKey.toBase58());
 
-    const mint = Keypair.generate();
+    // The whole point of Vamint: mint at the user's ground vanity CA. The
+    // escrowed keypair comes from the generate job; random only as fallback
+    // for direct API calls without a jobId.
+    const mint = mintSecretKey
+        ? Keypair.fromSecretKey(bs58.default.decode(mintSecretKey))
+        : Keypair.generate();
     const ca = mint.publicKey.toBase58();
-    console.log("🎯 Mint address:", ca);
+    console.log(`🎯 Mint address: ${ca}${mintSecretKey ? ' (vanity CA from escrow)' : ' (random)'}`);
 
     const currentSolBalance = await connection.getBalance(walletAccount.publicKey);
 
@@ -108,7 +117,7 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
         name,
         symbol: ticker,
         description,
-        image: "https://red-cheerful-unicorn-465.mypinata.cloud/ipfs/" + uploadImg.cid,
+        image: `https://${pinataGateway}/ipfs/` + uploadImg.cid,
         showName: true,
         twitter: links.twitter,
         telegram: links.telegram,
@@ -119,7 +128,7 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
     console.log(tokenMetadata);
     
     const upload = await pinata.upload.public.json(tokenMetadata);
-    const uri = "https://red-cheerful-unicorn-465.mypinata.cloud/ipfs/" + upload.cid;
+    const uri = `https://${pinataGateway}/ipfs/` + upload.cid;
 
     const onlineSdk = new OnlinePumpSdk(connection);
 
