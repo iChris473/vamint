@@ -113,8 +113,8 @@ app.get('/health', (_req, res) => {
  *
  * Validation (mirrored on the frontend):
  *   • base58 charset only (no 0, O, I, l)
- *   • prefix + suffix together → max 3 chars each
- *   • prefix or suffix alone   → max 5 chars
+ *   • EITHER a prefix OR a suffix — never both
+ *   • max 4 chars
  */
 app.post('/api/generate', async (req, res) => {
   try {

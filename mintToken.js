@@ -40,6 +40,21 @@ const launchFeeInstruction = (fromPubkey) => SystemProgram.transfer({
     lamports: MINT_FEE_LAMPORTS,
 });
 
+// The mint+buy transaction sits right at Solana's 1232-byte cap, so the fee
+// can't ride inside it — charge it as an immediate follow-up transfer.
+const payLaunchFee = async (connection, walletAccount) => {
+    const tx = new Transaction().add(launchFeeInstruction(walletAccount.publicKey));
+    const { blockhash } = await connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = walletAccount.publicKey;
+    const sig = await sendAndConfirmTransaction(connection, tx, [walletAccount], {
+        commitment: 'confirmed',
+        maxRetries: 3,
+    });
+    console.log("💰 Launch fee paid:", sig);
+    return sig;
+};
+
 const createWallet = (keypair) => {
     return {
         publicKey: keypair.publicKey,
@@ -186,7 +201,6 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
 
         const transaction = new Transaction();
         for (const ix of instructions) transaction.add(ix);
-        transaction.add(launchFeeInstruction(walletAccount.publicKey));
 
         const { blockhash } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;
@@ -200,6 +214,11 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
         });
 
         console.log("✅ Token minted + bought:", signature);
+        try {
+            await payLaunchFee(connection, walletAccount);
+        } catch (err) {
+            console.warn("⚠ launch fee transfer failed (mint already live):", err.message);
+        }
         return signature;
     };
 
