@@ -1,5 +1,5 @@
 const dotenv = require("dotenv");
-const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, sendAndConfirmTransaction } = require("@solana/web3.js");
+const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, sendAndConfirmTransaction, clusterApiUrl } = require("@solana/web3.js");
 const { PumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = require("@pump-fun/pump-sdk");
 const { AnchorProvider } = require("@coral-xyz/anchor");
 const NodeWallet = require("@coral-xyz/anchor/dist/cjs/nodewallet");
@@ -52,13 +52,20 @@ const createWallet = (keypair) => {
     };
 };
 
+// QUICKNODE_RPC_URL if set, otherwise the same RPC the rest of the backend
+// uses (SOLANA_RPC_URL / SOLANA_CLUSTER, defaulting to public mainnet).
+const deployRpcUrl = () =>
+    process.env.QUICKNODE_RPC_URL ||
+    process.env.SOLANA_RPC_URL ||
+    clusterApiUrl(process.env.SOLANA_CLUSTER || "mainnet-beta");
+
 const getProvider = (privateKey) => {
-    const QUICKNODE_RPC_URL = process.env.QUICKNODE_RPC_URL;
-    console.log(privateKey, QUICKNODE_RPC_URL);
-    const connection = new Connection(QUICKNODE_RPC_URL || "");
+    const rpc = deployRpcUrl();
+    console.log("[deploy] rpc:", rpc);
+    const connection = new Connection(rpc);
     const privateKeyBuffer = bs58.decode(privateKey);
     const FROM_KEYPAIR = Keypair.fromSecretKey(privateKeyBuffer);
-    console.log(FROM_KEYPAIR.publicKey.toBase58());
+    console.log("[deploy] dev wallet:", FROM_KEYPAIR.publicKey.toBase58());
     // const wallet = new NodeWallet.default(FROM_KEYPAIR);
     const wallet = createWallet(FROM_KEYPAIR);
     return new AnchorProvider(connection, wallet, { commitment: "finalized" });
