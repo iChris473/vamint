@@ -63,7 +63,7 @@ const getProvider = (privateKey) => {
     const rpc = deployRpcUrl();
     console.log("[deploy] rpc:", rpc);
     const connection = new Connection(rpc);
-    const privateKeyBuffer = bs58.decode(privateKey);
+    const privateKeyBuffer = bs58.default.decode(privateKey);
     const FROM_KEYPAIR = Keypair.fromSecretKey(privateKeyBuffer);
     console.log("[deploy] dev wallet:", FROM_KEYPAIR.publicKey.toBase58());
     // const wallet = new NodeWallet.default(FROM_KEYPAIR);
@@ -79,7 +79,7 @@ const mintTokenOnPumpFun = async (imageFile, name, ticker, description, links, p
     const sdk = new PumpSdk(provider);
     const connection = provider.connection;
 
-    const privateKeyBuffer = bs58.decode(privateKey);
+    const privateKeyBuffer = bs58.default.decode(privateKey);
     const walletAccount = Keypair.fromSecretKey(privateKeyBuffer);
     console.log("🔵 Dev Wallet public key:", walletAccount.publicKey.toBase58());
 
